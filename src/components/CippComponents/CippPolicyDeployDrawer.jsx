@@ -17,6 +17,38 @@ const assignmentFilterTypeOptions = [
   { label: 'Exclude - Apply policy to devices NOT matching filter', value: 'exclude' },
 ]
 
+// Reserved replacement variables handled server-side by Get-CIPPTextReplacement.
+// These are populated automatically per tenant, so they must never be prompted for here.
+// Stored without the surrounding %% and lowercased for case-insensitive matching, since
+// templates may reference them in any casing (e.g. %TenantId%, %tenantid%).
+const reservedReplacementVariables = new Set(
+  [
+    'serial',
+    'systemroot',
+    'systemdrive',
+    'system32',
+    'osdrive',
+    'temp',
+    'tenantid',
+    'tenantfilter',
+    'initialdomain',
+    'tenantname',
+    'partnertenantid',
+    'samappid',
+    'userprofile',
+    'username',
+    'userdomain',
+    'windir',
+    'programfiles',
+    'programfiles(x86)',
+    'programdata',
+    'cippuserschema',
+    'cippurl',
+    'defaultdomain',
+    'organizationid',
+  ].map((variable) => variable.toLowerCase()),
+)
+
 export const CippPolicyDeployDrawer = ({
   buttonText = 'Deploy Policy',
   requiredPermissions = [],
@@ -204,6 +236,21 @@ export const CippPolicyDeployDrawer = ({
           <CippFormCondition
             formControl={formControl}
             field="AssignTo"
+            compareType="isNot"
+            compareValue="On"
+          >
+            <Grid size={{ xs: 12 }}>
+              <CippFormComponent
+                type="textField"
+                label="Exclude Group Names separated by comma. Wildcards (*) are allowed"
+                name="excludeGroup"
+                formControl={formControl}
+              />
+            </Grid>
+          </CippFormCondition>
+          <CippFormCondition
+            formControl={formControl}
+            field="AssignTo"
             compareType="isOneOf"
             compareValue={['allLicensedUsers', 'AllDevices', 'AllDevicesAndUsers', 'customGroup']}
           >
@@ -244,7 +291,9 @@ export const CippPolicyDeployDrawer = ({
             {(() => {
               const rawJson = jsonWatch ? jsonWatch : ''
               const placeholderMatches = [...rawJson.matchAll(/%(\w+)%/g)].map((m) => m[1])
-              const uniquePlaceholders = Array.from(new Set(placeholderMatches))
+              const uniquePlaceholders = Array.from(new Set(placeholderMatches)).filter(
+                (placeholder) => !reservedReplacementVariables.has(placeholder.toLowerCase()),
+              )
               if (uniquePlaceholders.length === 0 || selectedTenants.length === 0) {
                 return null
               }

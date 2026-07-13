@@ -3,7 +3,7 @@ import { Button, Stack, Box } from "@mui/material";
 import { Add } from "@mui/icons-material";
 import { useForm } from "react-hook-form";
 import { CippOffCanvas } from "./CippOffCanvas";
-import { ApiPostCall, ApiGetCallWithPagination } from "../../api/ApiCall";
+import { ApiPostCall, ApiGetCall } from "../../api/ApiCall";
 import CippFormComponent from "./CippFormComponent";
 import { CippApiResults } from "./CippApiResults";
 import { useSettings } from "../../hooks/use-settings";
@@ -15,28 +15,41 @@ export const CippAuditLogSearchDrawer = ({
   const [drawerVisible, setDrawerVisible] = useState(false);
   const currentTenantDomain = useSettings().currentTenant;
 
-  // Fetch tenant list to get full tenant details
-  const tenantList = ApiGetCallWithPagination({
+  // Fetch tenant list to get full tenant details.
+  const tenantList = ApiGetCall({
     url: "/api/ListTenants",
     queryKey: "ListTenants-FormnotAllTenants",
     data: { AllTenantSelector: false },
   });
 
-  // Find the current tenant from the list using the domain name - handle pagination data structure
-  const allTenants = tenantList.data?.pages?.flatMap((page) => page.Results || page) || [];
+  // Find the current tenant from the list using the domain name
+  const allTenants = Array.isArray(tenantList.data) ? tenantList.data : [];
   const currentTenant = allTenants.find(
     (tenant) => tenant.defaultDomainName === currentTenantDomain
   );
 
+  // Keep array defaults for all multi-select fields to avoid Autocomplete receiving undefined.
+  const baseDefaultValues = {
+    RecordTypeFilters: [],
+    KeywordFilter: [],
+    OperationsFilters: [],
+    UserPrincipalNameFilters: [],
+    IPAddressFilters: [],
+    ObjectIdFilters: [],
+    AdministrativeUnitFilters: [],
+    ProcessLogs: false,
+  }
+
   // Create default values with current tenant prefilled
   const defaultValues = {
+    ...baseDefaultValues,
     TenantFilter: currentTenant
       ? {
           label: `${currentTenant.displayName} (${currentTenant.defaultDomainName})`,
           value: currentTenant.defaultDomainName,
         }
       : null,
-  };
+  }
 
   const formControl = useForm({
     defaultValues,
@@ -46,14 +59,15 @@ export const CippAuditLogSearchDrawer = ({
   useEffect(() => {
     if (currentTenant) {
       const newDefaultValues = {
+        ...baseDefaultValues,
         TenantFilter: {
           label: `${currentTenant.displayName} (${currentTenant.defaultDomainName})`,
           value: currentTenant.defaultDomainName,
         },
-      };
-      formControl.reset(newDefaultValues);
+      }
+      formControl.reset(newDefaultValues)
     }
-  }, [currentTenant, formControl]);
+  }, [currentTenant, formControl])
 
   const createSearchApi = ApiPostCall({
     datafromUrl: false,
@@ -64,16 +78,17 @@ export const CippAuditLogSearchDrawer = ({
     setDrawerVisible(false);
     if (currentTenant) {
       const resetValues = {
+        ...baseDefaultValues,
         TenantFilter: {
           label: `${currentTenant.displayName} (${currentTenant.defaultDomainName})`,
           value: currentTenant.defaultDomainName,
         },
-      };
-      formControl.reset(resetValues);
+      }
+      formControl.reset(resetValues)
     } else {
-      formControl.reset();
+      formControl.reset(baseDefaultValues)
     }
-  };
+  }
 
   const handleCreateSearch = async (data) => {
     const formattedData = { ...data };
@@ -177,7 +192,7 @@ export const CippAuditLogSearchDrawer = ({
         url: "/api/ListTenants?AllTenantSelector=false",
         labelField: (option) => `${option.displayName} (${option.defaultDomainName})`,
         valueField: "defaultDomainName",
-        queryKey: "ListTenants-FormnotAllTenants",
+        queryKey: "ListTenants-AuditDrawer",
         excludeTenantFilter: true,
       },
       validators: { validate: (value) => !!value?.value || "Please select a tenant" },

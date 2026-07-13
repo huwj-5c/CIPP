@@ -11,6 +11,7 @@ import {
   BarChart,
 } from '@mui/icons-material'
 import { Chip, Link, SvgIcon, Tooltip } from '@mui/material'
+import NextLink from 'next/link'
 import { alpha } from '@mui/material/styles'
 import { Box } from '@mui/system'
 import { CippCopyToClipBoard } from '../components/CippComponents/CippCopyToClipboard'
@@ -33,7 +34,8 @@ import DOMPurify from 'dompurify'
 import { getSignInErrorCodeTranslation } from './get-cipp-signin-errorcode-translation'
 import { CollapsibleChipList } from '../components/CippComponents/CollapsibleChipList'
 import countryList from '../data/countryList.json'
-import standardsData from '../data/standards.json'
+import { getStandards } from './standards-data'
+import { parseCippDate } from './parse-cipp-date'
 
 // Helper function to convert country codes to country names
 const getCountryNameFromCode = (countryCode) => {
@@ -137,6 +139,54 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
     return <Chip variant="outlined" label={label} size="small" color={color} />
   }
 
+  // Microsoft Entra device trust type (Graph device.trustType)
+  if (cellName === 'trustType' && typeof data === 'string' && data) {
+    const trustTypeMap = {
+      workplace: 'Microsoft Entra registered',
+      azuread: 'Microsoft Entra joined',
+      serverad: 'Microsoft Entra hybrid joined',
+    }
+    return trustTypeMap[data.toLowerCase()] ?? data
+  }
+
+  // Microsoft Entra device join type (Intune managedDevice.joinType)
+  if (cellName === 'joinType' && typeof data === 'string' && data) {
+    const joinTypeMap = {
+      azureadregistered: 'Microsoft Entra registered',
+      azureadjoined: 'Microsoft Entra joined',
+      hybridazureadjoined: 'Microsoft Entra hybrid joined',
+      unknown: 'Unknown',
+    }
+    return joinTypeMap[data.toLowerCase()] ?? data
+  }
+
+  // Hex color values (a sensitivity label's custom color, content-marking font colors, ...) render
+  // as a swatch chip. Matches any column named Color or *Color, guarded on the value shape so
+  // non-hex data in a matching column falls through untouched.
+  if (cellNameLower.endsWith('color') && typeof data === 'string' && /^#[0-9A-Fa-f]{6}$/.test(data)) {
+    return isText ? (
+      data
+    ) : (
+      <Chip
+        variant="outlined"
+        size="small"
+        label={data.toUpperCase()}
+        icon={
+          <Box
+            component="span"
+            sx={{
+              width: 14,
+              height: 14,
+              borderRadius: '50%',
+              backgroundColor: data,
+              border: '1px solid rgba(0, 0, 0, 0.2)',
+            }}
+          />
+        }
+      />
+    )
+  }
+
   //if the cellName starts with portal_, return text, or a link with an icon
   if (cellName.startsWith('portal_')) {
     const IconComponent = portalIcons[cellName]
@@ -151,7 +201,11 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
     )
   }
 
-  if (cellName === 'prohibitSendReceiveQuotaInBytes' || cellName === 'storageUsedInBytes') {
+  if (
+    cellName === 'prohibitSendReceiveQuotaInBytes' ||
+    cellName === 'storageUsedInBytes' ||
+    cellName === 'ArchiveSize'
+  ) {
     //convert bytes to GB
     const bytes = data
     if (bytes === null || bytes === undefined) {
@@ -173,6 +227,32 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
     ) : (
       ''
     )
+  }
+
+  // Audit-log coverage timestamps: render as an ABSOLUTE date in the browser's local timezone
+  // (long format) rather than relative "x ago". The UTC ISO values carry a Z so they're
+  // unambiguous; parseCippDate also handles epoch. Checked before the relative timeAgoArray below.
+  const absoluteDateArray = [
+    'WindowStart',
+    'WindowEnd',
+    'CreatedUtc',
+    'DownloadedUtc',
+    'ProcessedUtc',
+    'NextAttemptUtc',
+    'LastErrorUtc',
+    'LastPolledUtc',
+  ]
+  if (absoluteDateArray.includes(cellName)) {
+    if (data === null || data === undefined || data === '') {
+      return isText ? '' : ''
+    }
+    const dt = parseCippDate(data)
+    if (isNaN(dt.getTime())) return isText ? '' : ''
+    if (dt.getTime() === 0) return isText ? '' : 'Never'
+    // text mode: Date object so MRT sorts chronologically (toLocaleString for CSV export);
+    // cell mode: long absolute string in the browser's locale + timezone.
+    if (isText) return canReceive === false ? dt.toLocaleString() : dt
+    return dt.toLocaleString()
   }
 
   const timeAgoArray = [
@@ -212,9 +292,9 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
   const matchDateTime = /([dD]ate[tT]ime|[Ee]xpiration|[Tt]imestamp|[sS]tart[Dd]ate)/
   if (timeAgoArray.includes(cellName) || matchDateTime.test(cellName)) {
     return isText && canReceive === false ? (
-      new Date(data).toLocaleString() // This runs if canReceive is false and isText is true
+      parseCippDate(data).toLocaleString() // This runs if canReceive is false and isText is true
     ) : isText && canReceive !== 'both' ? (
-      new Date(data) // This runs if isText is true and canReceive is not "both" or false
+      parseCippDate(data) // This runs if isText is true and canReceive is not "both" or false
     ) : (
       <CippTimeAgo data={data} type={type} />
     )
@@ -259,7 +339,11 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
     return isText ? data : data
   }
 
-  if (cellName === 'alignmentScore' || cellName === 'combinedAlignmentScore') {
+  if (
+    cellName === 'alignmentScore' ||
+    cellName === 'combinedAlignmentScore' ||
+    cellName === 'compliancePercentage'
+  ) {
     // Handle alignment score, return a percentage with a label
     return isText ? (
       `${data}%`
@@ -269,7 +353,8 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
   }
 
   if (cellName === 'currentDeviationsCount') {
-    if (data === undefined || data === null) return isText ? 'N/A' : <Chip variant="outlined" label="N/A" size="small" color="default" />
+    if (data === undefined || data === null)
+      return isText ? 'N/A' : <Chip variant="outlined" label="N/A" size="small" color="default" />
     const count = Number(data)
     const color = count > 0 ? 'warning' : 'success'
     const label = count > 0 ? `${count} Deviation${count !== 1 ? 's' : ''}` : 'None'
@@ -462,8 +547,8 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
     if (!data?.startsWith('standards.')) return isText ? data : <span>{data}</span>
     const baseName = data.split('.').slice(0, -1).join('.')
     const label =
-      standardsData.find((s) => s.name === data)?.label ??
-      standardsData.find((s) => s.name === baseName)?.label ??
+      getStandards().find((s) => s.name === data)?.label ??
+      getStandards().find((s) => s.name === baseName)?.label ??
       data
     return label
   }
@@ -994,8 +1079,7 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
   // into human-readable form (e.g. "1 hour 23 minutes 30 seconds") across all CIPP tables.
   // The try/catch below handles same-suffixed fields that are not actually ISO 8601.
   // Add explicit entries below for fields that don't follow the *Duration naming convention.
-  const durationArray = [
-  ]
+  const durationArray = []
   if (durationArray.includes(cellName) || cellName.endsWith('Duration')) {
     isoDuration.setLocales(
       {
@@ -1016,15 +1100,42 @@ export const getCippFormatting = (data, cellName, type, canReceive, flatten = tr
     }
   }
 
-  //if string starts with http, return a link
-  if (typeof data === 'string' && data.toLowerCase().startsWith('http')) {
+  // Internal CIPP navigation links
+  if (cellName === 'cippLink' && typeof data === 'string') {
     return isText ? (
       data
     ) : (
+      <Link component={NextLink} href={data} underline="hover">
+        View
+      </Link>
+    )
+  }
+
+  //if string starts with http, return a link - but only when it parses as a real
+  //absolute http(s) URL. Defanged URLs (e.g. https[:]//bad.com from Check) fail to
+  //parse and would otherwise render as a link relative to the CIPP instance, so
+  //those are shown as plain text with only the copy button.
+  if (typeof data === 'string' && data.toLowerCase().startsWith('http')) {
+    let isValidUrl = false
+    try {
+      const parsedUrl = new URL(data)
+      isValidUrl = parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:'
+    } catch {
+      isValidUrl = false
+    }
+    if (isText) {
+      return data
+    }
+    return isValidUrl ? (
       <>
         <Link href={data} target="_blank" rel="noreferrer">
           URL
         </Link>
+        <CippCopyToClipBoard text={data} />
+      </>
+    ) : (
+      <>
+        {data}
         <CippCopyToClipBoard text={data} />
       </>
     )
