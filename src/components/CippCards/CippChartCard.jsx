@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Box,
   Card,
@@ -13,12 +13,23 @@ import { useTheme } from "@mui/material/styles";
 import { ActionsMenu } from "../actions-menu";
 import { Chart } from "../chart";
 
-const useChartOptions = (labels, chartType) => {
+const useChartOptions = (labels, chartType, colors, onSegmentClick) => {
   const theme = useTheme();
+  const longBarLabels =
+    chartType === "bar" &&
+    (labels.length > 6 || labels.some((label) => String(label ?? "").length > 18));
 
   return {
     chart: {
       background: "transparent",
+      ...(onSegmentClick && {
+        events: {
+          dataPointSelection: (event, context, config) => {
+            event?.stopPropagation?.();
+            onSegmentClick(labels[config.dataPointIndex], config.dataPointIndex);
+          },
+        },
+      }),
       toolbar: {
         show: false,
         tools: {
@@ -32,7 +43,7 @@ const useChartOptions = (labels, chartType) => {
         },
       },
     },
-    colors: [
+    colors: colors ?? [
       theme.palette.success.main,
       theme.palette.warning.main,
       theme.palette.error.main,
@@ -41,17 +52,32 @@ const useChartOptions = (labels, chartType) => {
     dataLabels: {
       enabled: false,
     },
+    // ApexCharts' theme.mode does not touch the grid, so its #e0e0e0 default draws
+    // near-white rules on a dark card. Both are the theme's own divider instead.
+    grid: {
+      borderColor: theme.palette.divider,
+    },
 
     xaxis: {
       // Categories drive the bar/line axis labels and the tooltip title. Without this, a bar
       // chart's tooltip falls back to the auto series name ("series-1") instead of the label.
       categories: labels,
       labels: {
-        show: true,
+        // Long SharePoint/site names overlap when forced upright under every bar. The card already
+        // lists full names below; keep categories for tooltips and hide the crowded axis text.
+        show: !longBarLabels,
         rotate: 0,
+        hideOverlappingLabels: true,
+        trim: true,
         style: {
           fontSize: "12px",
         },
+      },
+      axisBorder: {
+        color: theme.palette.divider,
+      },
+      axisTicks: {
+        color: theme.palette.divider,
       },
       tickPlacement: "on",
     },
@@ -102,12 +128,25 @@ export const CippChartCard = ({
   actions,
   headerAction,
   onClick,
+  onSegmentClick,
   totalLabel = "Total",
   customTotal,
+  colors,
 }) => {
   const [range, setRange] = useState("Last 7 days");
   const [barSeries, setBarSeries] = useState([]);
-  const chartOptions = useChartOptions(labels, chartType);
+  // A stable handler so a parent re-render does not hand the chart new options to redraw.
+  const segmentRef = useRef(onSegmentClick);
+  useEffect(() => {
+    segmentRef.current = onSegmentClick;
+  });
+  const handleSegment = useCallback((label, index) => segmentRef.current?.(label, index), []);
+  const chartOptions = useChartOptions(
+    labels,
+    chartType,
+    colors,
+    onSegmentClick ? handleSegment : undefined
+  );
   chartSeries = chartSeries.filter((item) => item !== null);
   // Round to 2 decimals - summing fractional series values accumulates floating-point
   // artifacts (e.g. 175.73000000000002). Integer series are unaffected.
@@ -129,6 +168,9 @@ export const CippChartCard = ({
       sx={{
         cursor: onClick ? "pointer" : "default",
         transition: "all 0.2s ease-in-out",
+        ...(onSegmentClick && {
+          "& .apexcharts-pie-area, & .apexcharts-bar-area": { cursor: "pointer" },
+        }),
         "&:hover": onClick ? {
           boxShadow: (theme) => theme.shadows[8],
           transform: "translateY(-2px)",
@@ -167,7 +209,9 @@ export const CippChartCard = ({
                 justifyContent: "center",
               }}
             >
-              <Typography color="text.secondary" variant="body2">
+              <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>
                 No data to display
               </Typography>
             </Box>
@@ -181,12 +225,13 @@ export const CippChartCard = ({
           )
         }
         <Stack
-          alignItems="center"
           direction="row"
-          justifyContent="space-between"
           spacing={1}
-          sx={{ py: 1 }}
-        >
+          sx={{
+            alignItems: "center",
+            justifyContent: "space-between",
+            py: 1
+          }}>
           {labels.length > 0 && (
             <>
               <Typography variant="h5">{totalLabel}</Typography>
@@ -204,22 +249,38 @@ export const CippChartCard = ({
                 labels.length > 0 &&
                   chartSeries.map((item, index) => (
                     <Stack
-                      alignItems="center"
                       direction="row"
-                      justifyContent="space-between"
                       key={labels[index]}
                       spacing={1}
-                      sx={{ py: 1 }}
-                    >
+                      onClick={
+                        onSegmentClick
+                          ? (event) => {
+                              event.stopPropagation();
+                              onSegmentClick(labels[index], index);
+                            }
+                          : undefined
+                      }
+                      sx={{
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        py: 1,
+                        ...(onSegmentClick && {
+                          cursor: "pointer",
+                          borderRadius: 1,
+                          "&:hover": { bgcolor: "action.hover" },
+                        }),
+                      }}>
                       {/* minWidth: 0 both here and on the label: labels are API free text
                           (recipient addresses, SharePoint URLs), and flexbox's min-width:
                           auto otherwise refuses to shrink them, pushing rows out of the card */}
                       <Stack
-                        alignItems="center"
                         direction="row"
                         spacing={1}
-                        sx={{ flexGrow: 1, minWidth: 0 }}
-                      >
+                        sx={{
+                          alignItems: "center",
+                          flexGrow: 1,
+                          minWidth: 0
+                        }}>
                         <Box
                           sx={{
                             // Match ApexCharts' color cycling so the dot lines up with its bar/slice.
@@ -232,14 +293,24 @@ export const CippChartCard = ({
                           }}
                         />
                         <Typography
-                          color="text.secondary"
                           variant="body2"
-                          sx={{ minWidth: 0, overflowWrap: "anywhere" }}
-                        >
+                          title={labels[index]}
+                          sx={{
+                            color: "text.secondary",
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}>
                           {labels[index]}
                         </Typography>
                       </Stack>
-                      <Typography color="text.secondary" variant="body2" sx={{ flexShrink: 0 }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: "text.secondary",
+                          flexShrink: 0
+                        }}>
                         {item}
                       </Typography>
                     </Stack>

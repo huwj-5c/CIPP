@@ -19,6 +19,8 @@ export const CippWizardStepButtons = (props) => {
     nextButtonDisabled = false,
     replacementBehaviour,
     queryKeys,
+    jobProgress,
+    onSubmit,
     ...other
   } = props;
   const { isValid, isSubmitted, isSubmitting } = useFormState({ control: formControl.control });
@@ -44,6 +46,7 @@ export const CippWizardStepButtons = (props) => {
         newData[key] = value;
       }
     });
+    onSubmit?.();
     sendForm.mutate({ url: postUrl, data: newData });
   };
 
@@ -87,7 +90,7 @@ export const CippWizardStepButtons = (props) => {
         <Button
           size="large"
           variant="contained"
-          color="success"
+          color={dialogContext.completionButton.color ?? "primary"}
           onClick={dialogContext.completionButton.onClick}
         >
           {dialogContext.completionButton.label}
@@ -98,7 +101,7 @@ export const CippWizardStepButtons = (props) => {
 
   return (
     <>
-      <CippApiResults apiObject={sendForm} />
+      <CippApiResults apiObject={sendForm} jobProgress={jobProgress} />
       {dialogContext?.actionsEl ? createPortal(buttonStack, dialogContext.actionsEl) : buttonStack}
     </>
   );

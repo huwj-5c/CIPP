@@ -1,12 +1,11 @@
 import { useEffect } from "react";
+import { CippIcons } from "../../utils/icon-registry";
 import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
   Alert,
   Button,
-  CardActions,
-  CardContent,
   Chip,
   Divider,
   Link,
@@ -20,7 +19,6 @@ import {
   TableRow,
   Typography,
 } from "@mui/material";
-import { ExpandMore } from "@mui/icons-material";
 import { useForm } from "react-hook-form";
 import { Grid } from "@mui/system";
 import CippFormComponent from "../CippComponents/CippFormComponent";
@@ -30,7 +28,7 @@ import { CippApiResults } from "../CippComponents/CippApiResults";
 
 const SSO_DOCS_URL = "https://docs.cipp.app/user-documentation/cipp/advanced/authentication/sso";
 
-// The three delegated scopes New-CIPPSSOApp requests. Kept here verbatim so an admin can hand
+// The four delegated scopes New-CIPPSSOApp requests. Kept here verbatim so an admin can hand
 // this straight to their own security team without having to ask what the app can reach.
 const ssoAppPermissions = [
   {
@@ -47,6 +45,11 @@ const ssoAppPermissions = [
     reason:
       "Reads the signed-in user's UPN, which CIPP matches against the CIPP Users list to decide their roles.",
   },
+  {
+    name: "offline_access",
+    reason:
+      "Issues a refresh token so a signed-in session can be renewed without the user signing in again. Grants no additional data access.",
+  },
 ];
 
 // Application permissions already consented on CIPP-SAM that the setup runs as. Nothing new is
@@ -59,7 +62,7 @@ const samPermissionsUsed = [
   {
     name: "Directory.ReadWrite.All",
     reason:
-      "Grants tenant-wide consent for the three scopes above so your users are not prompted to consent at sign-in.",
+      "Grants tenant-wide consent for the four scopes above so your users are not prompted to consent at sign-in.",
   },
   {
     name: "Policy.ReadWrite.ApplicationConfiguration",
@@ -91,7 +94,9 @@ export const PermissionTable = ({ rows, typeLabel }) => (
               >
                 {row.name}
               </Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>
                 {typeLabel}
               </Typography>
             </TableCell>
@@ -188,6 +193,11 @@ export const CippSSOSettings = () => {
   // missingRedirectUris means "we don't know", not "everything is fine" — say so rather than
   // showing a clean list a customer would read as confirmation.
   const domainsUnverified = hasAppId && data?.domainsVerified === false;
+
+  // The weekly token update rotates the secret inside this window.
+  const secretExpiringSoon =
+    Boolean(data?.secretExpires) &&
+    new Date(data.secretExpires).getTime() - Date.now() <= 30 * 24 * 60 * 60 * 1000;
 
   const preconsentInfo =
     data?.preconsented === true
@@ -302,9 +312,77 @@ export const CippSSOSettings = () => {
     );
   });
 
+  const cardButtons = !ssoStatus.isLoading && (
+    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", justifyContent: "flex-end", ml: "auto" }}>
+        {showCreate && (
+          <Button
+            variant="contained"
+            onClick={handleCreate}
+            disabled={ssoAction.isPending}
+          >
+            Create SSO App
+          </Button>
+        )}
+
+        {canRepair && (
+          <>
+            <Button
+              variant="outlined"
+              color="warning"
+              onClick={handleRecreate}
+              disabled={ssoAction.isPending}
+            >
+              Recreate
+            </Button>
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={handleRepair}
+              disabled={ssoAction.isPending}
+            >
+              Repair
+            </Button>
+          </>
+        )}
+
+        {isProvisioned && (
+          <>
+            <Button
+              variant="outlined"
+              color={missingSignInHosts.length > 0 ? "warning" : "inherit"}
+              onClick={handleRefreshSignInUrls}
+              disabled={ssoAction.isPending}
+            >
+              Refresh Sign-in URLs
+            </Button>
+            <Button
+              variant="outlined"
+              color="warning"
+              onClick={handleRotateSecret}
+              disabled={ssoAction.isPending}
+            >
+              Rotate Secret
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleUpdate}
+              disabled={ssoAction.isPending}
+            >
+              Save Changes
+            </Button>
+          </>
+        )}
+    </Stack>
+  );
+
   return (
-    <CippButtonCard title="SSO App Registration" isFetching={ssoStatus.isFetching}>
-      <CardContent>
+    <CippButtonCard
+      title="SSO App Registration"
+      isFetching={ssoStatus.isFetching}
+      CardButton={cardButtons}
+      cardSx={{ height: "100%", display: "flex", flexDirection: "column" }}
+    >
+      <>
         {ssoStatus.isLoading ? (
           <Stack spacing={2}>
             <Skeleton variant="rectangular" height={40} />
@@ -320,7 +398,7 @@ export const CippSSOSettings = () => {
               defaultExpanded={false}
               sx={{ "&:before": { display: "none" } }}
             >
-              <AccordionSummary expandIcon={<ExpandMore />} sx={{ px: 0 }}>
+              <AccordionSummary expandIcon={<CippIcons.ExpandMore />} sx={{ px: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   About the CIPP-SSO app registration
                 </Typography>
@@ -350,14 +428,16 @@ export const CippSSOSettings = () => {
                     <PermissionTable rows={ssoAppPermissions} typeLabel="Delegated · Microsoft Graph" />
                     <Typography
                       variant="caption"
-                      color="text.secondary"
-                      sx={{ display: "block", mt: 1 }}
-                    >
+                      sx={{
+                        color: "text.secondary",
+                        display: "block",
+                        mt: 1
+                      }}>
                       No application (app-only) permissions are requested, so the app can never act
                       without a signed-in user. None of these scopes grant access to mail, files,
-                      Teams or directory data — they are the standard OpenID Connect sign-in scopes,
-                      classed by Microsoft as low impact. Who can actually reach CIPP is still
-                      controlled by the CIPP Users list.
+                      Teams or directory data — they are the standard OpenID Connect sign-in scopes
+                      plus offline_access to renew the session, all classed by Microsoft as low
+                      impact. Who can actually reach CIPP is still controlled by the CIPP Users list.
                     </Typography>
                   </div>
 
@@ -368,9 +448,11 @@ export const CippSSOSettings = () => {
                     <PermissionTable rows={samPermissionsUsed} typeLabel="Application · on CIPP-SAM" />
                     <Typography
                       variant="caption"
-                      color="text.secondary"
-                      sx={{ display: "block", mt: 1 }}
-                    >
+                      sx={{
+                        color: "text.secondary",
+                        display: "block",
+                        mt: 1
+                      }}>
                       These are part of the standard CIPP-SAM permission set and were consented when
                       CIPP was installed — nothing new is requested during setup. If setup fails on
                       one of these steps, your CIPP-SAM consent predates that permission and needs
@@ -411,9 +493,13 @@ export const CippSSOSettings = () => {
 
             <Divider />
 
-            <Grid container spacing={2} alignItems="center">
+            <Grid container spacing={2} sx={{
+              alignItems: "center"
+            }}>
               <Grid size={{ xs: 12, md: 4 }}>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{
+                  color: "text.secondary"
+                }}>
                   Status
                 </Typography>
               </Grid>
@@ -424,7 +510,9 @@ export const CippSSOSettings = () => {
               {hasAppId && (
                 <>
                   <Grid size={{ xs: 12, md: 4 }}>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
                       Admin Consent
                     </Typography>
                   </Grid>
@@ -437,9 +525,11 @@ export const CippSSOSettings = () => {
                     {data?.preconsented === false && (
                       <Typography
                         variant="caption"
-                        color="text.secondary"
-                        sx={{ display: "block", mt: 0.5 }}
-                      >
+                        sx={{
+                          color: "text.secondary",
+                          display: "block",
+                          mt: 0.5
+                        }}>
                         {data?.preconsentError
                           ? `Users will be prompted to consent at sign-in. ${data.preconsentError}`
                           : "Users will be prompted to consent at sign-in."}
@@ -452,7 +542,9 @@ export const CippSSOSettings = () => {
               {data?.appId && (
                 <>
                   <Grid size={{ xs: 12, md: 4 }}>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
                       App ID
                     </Typography>
                   </Grid>
@@ -464,15 +556,53 @@ export const CippSSOSettings = () => {
                 </>
               )}
 
+              {data?.secretExpires && (
+                <>
+                  <Grid size={{ xs: 12, md: 4 }}>
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
+                      Client secret
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 8 }}>
+                    <Stack direction="row" spacing={1} useFlexGap sx={{
+                      flexWrap: "wrap",
+                      alignItems: "center"
+                    }}>
+                      <Typography variant="body2">
+                        Expires {new Date(data.secretExpires).toLocaleDateString()}
+                      </Typography>
+                      {secretExpiringSoon && (
+                        <Chip label="Expiring soon" color="warning" size="small" />
+                      )}
+                    </Stack>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: "text.secondary",
+                        display: "block",
+                        mt: 0.5
+                      }}>
+                      Auto-rotates 30 days before expiry.
+                    </Typography>
+                  </Grid>
+                </>
+              )}
+
               {signInHosts.length > 0 && (
                 <>
                   <Grid size={{ xs: 12, md: 4 }}>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
                       Sign-in URLs
                     </Typography>
                   </Grid>
                   <Grid size={{ xs: 12, md: 8 }}>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Stack direction="row" spacing={1} useFlexGap sx={{
+                      flexWrap: "wrap"
+                    }}>
                       {signInHosts.map((host) => (
                         <Chip
                           key={host}
@@ -485,9 +615,11 @@ export const CippSSOSettings = () => {
                     {missingSignInHosts.length > 0 && (
                       <Typography
                         variant="caption"
-                        color="text.secondary"
-                        sx={{ display: "block", mt: 0.5 }}
-                      >
+                        sx={{
+                          color: "text.secondary",
+                          display: "block",
+                          mt: 0.5
+                        }}>
                         {missingSignInHosts.join(", ")}{" "}
                         {missingSignInHosts.length === 1 ? "is" : "are"} bound to this
                         instance but not registered on the app. Click{" "}
@@ -498,9 +630,11 @@ export const CippSSOSettings = () => {
                     {domainsUnverified && (
                       <Typography
                         variant="caption"
-                        color="warning.main"
-                        sx={{ display: "block", mt: 0.5 }}
-                      >
+                        sx={{
+                          color: "warning.main",
+                          display: "block",
+                          mt: 0.5
+                        }}>
                         This list may be incomplete — the custom domains bound to this
                         instance could not be read, so a domain that cannot sign in would not
                         show up here.
@@ -514,7 +648,9 @@ export const CippSSOSettings = () => {
               {data?.createdAt && (
                 <>
                   <Grid size={{ xs: 12, md: 4 }}>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
                       Created
                     </Typography>
                   </Grid>
@@ -575,7 +711,7 @@ export const CippSSOSettings = () => {
             <CippApiResults apiObject={ssoAction} />
 
             <Accordion disableGutters elevation={0} sx={{ "&:before": { display: "none" } }}>
-              <AccordionSummary expandIcon={<ExpandMore />} sx={{ px: 0 }}>
+              <AccordionSummary expandIcon={<CippIcons.ExpandMore />} sx={{ px: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   Manual configuration (advanced)
                 </Typography>
@@ -624,7 +760,9 @@ export const CippSSOSettings = () => {
                     formControl={manualFormControl}
                   />
 
-                  <Stack direction="row" justifyContent="flex-end">
+                  <Stack direction="row" sx={{
+                    justifyContent: "flex-end"
+                  }}>
                     <Button
                       variant="contained"
                       color="warning"
@@ -639,71 +777,7 @@ export const CippSSOSettings = () => {
             </Accordion>
           </Stack>
         )}
-      </CardContent>
-      {!ssoStatus.isLoading && (
-        <CardActions sx={{ justifyContent: "flex-end", px: 2, pb: 2 }}>
-          <Stack direction="row" spacing={1}>
-            {showCreate && (
-              <Button
-                variant="contained"
-                onClick={handleCreate}
-                disabled={ssoAction.isPending}
-              >
-                Create SSO App
-              </Button>
-            )}
-
-            {canRepair && (
-              <>
-                <Button
-                  variant="outlined"
-                  color="warning"
-                  onClick={handleRecreate}
-                  disabled={ssoAction.isPending}
-                >
-                  Recreate
-                </Button>
-                <Button
-                  variant="contained"
-                  color="warning"
-                  onClick={handleRepair}
-                  disabled={ssoAction.isPending}
-                >
-                  Repair
-                </Button>
-              </>
-            )}
-
-            {isProvisioned && (
-              <>
-                <Button
-                  variant="outlined"
-                  color={missingSignInHosts.length > 0 ? "warning" : "inherit"}
-                  onClick={handleRefreshSignInUrls}
-                  disabled={ssoAction.isPending}
-                >
-                  Refresh Sign-in URLs
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="warning"
-                  onClick={handleRotateSecret}
-                  disabled={ssoAction.isPending}
-                >
-                  Rotate Secret
-                </Button>
-                <Button
-                  variant="contained"
-                  onClick={handleUpdate}
-                  disabled={ssoAction.isPending}
-                >
-                  Save Changes
-                </Button>
-              </>
-            )}
-          </Stack>
-        </CardActions>
-      )}
+      </>
     </CippButtonCard>
   );
 };

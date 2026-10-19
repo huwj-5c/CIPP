@@ -1,23 +1,21 @@
 import { Divider } from "@mui/material";
 import { Grid } from "@mui/system";
 import { useForm } from "react-hook-form";
-import { Layout as DashboardLayout } from "../../../../layouts/index.js";
+import { Layout as DashboardLayout } from "../../../../layouts/index";
 import CippFormPage from "../../../../components/CippFormPages/CippFormPage";
 import CippFormComponent from "../../../../components/CippComponents/CippFormComponent";
 import { useSettings } from "../../../../hooks/use-settings";
 import { CippFormDomainSelector } from "../../../../components/CippComponents/CippFormDomainSelector";
 
-const AddContact = () => {
+const AddSharedMailbox = () => {
   const tenantDomain = useSettings().currentTenant;
 
   const formControl = useForm({
     mode: "onChange",
     defaultValues: {
       displayName: "",
-      firstName: "",
-      lastName: "",
-      email: "",
-      hidefromGAL: false,
+      username: "",
+      domain: null,
     },
   });
 
@@ -55,7 +53,7 @@ const AddContact = () => {
         <Grid size={{ md: 6, xs: 12 }}>
           <CippFormComponent
             type="textField"
-            label="username"
+            label="Username"
             name="username"
             formControl={formControl}
           />
@@ -68,6 +66,6 @@ const AddContact = () => {
   );
 };
 
-AddContact.getLayout = (page) => <DashboardLayout>{page}</DashboardLayout>;
+AddSharedMailbox.getLayout = (page) => <DashboardLayout>{page}</DashboardLayout>;
 
-export default AddContact;
+export default AddSharedMailbox;

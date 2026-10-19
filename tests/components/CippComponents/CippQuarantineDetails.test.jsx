@@ -178,3 +178,100 @@ describe('CippQuarantineDetails', () => {
     expect(screen.getByText('1.0 KB')).toBeInTheDocument()
   })
 })
+
+// On the header fallback the URLs and attachments come from the exported message, not from
+// Defender, so a missing verdict is "not analysed", not "unknown" (GitHub #873).
+describe('CippQuarantineDetails verdict chips without a verdict', () => {
+  const withoutVerdicts = {
+    ...analyzed,
+    urls: [
+      { url: 'https://example.com/a', threatType: null, detectionMethod: null },
+    ],
+    attachments: [
+      {
+        fileName: 'image.png',
+        threatType: null,
+        malwareFamily: null,
+        fileSize: 1024,
+      },
+    ],
+  }
+  const noVerdictResult = (source) =>
+    getResult({
+      data: {
+        Results: [withoutVerdicts],
+        Metadata: { Available: true, Source: source },
+      },
+    })
+
+  it('says Not analysed on the header fallback', () => {
+    api.get = () => noVerdictResult('Headers')
+    renderWithProviders(<CippQuarantineDetails row={quarantineRow} />)
+    expect(screen.getAllByText('Not analysed')).toHaveLength(2)
+    expect(screen.queryByText('Unknown')).toBeNull()
+  })
+
+  it('still says Unknown when Defender answered without a verdict', () => {
+    api.get = () => noVerdictResult('Defender')
+    renderWithProviders(<CippQuarantineDetails row={quarantineRow} />)
+    expect(screen.getAllByText('Unknown')).toHaveLength(2)
+    expect(screen.queryByText('Not analysed')).toBeNull()
+  })
+})
+
+// Metadata.PermissionError marks a missing SecurityAnalyzedMessage.Read.All grant, which is a
+// consent gap the operator can repair - it must render its own caption pointing at the Permission
+// Check page and win over the two Defender-licence captions.
+describe('CippQuarantineDetails permission-error caption', () => {
+  it('points at the Permission Check instead of the licence copy when PermissionError is set', () => {
+    api.get = () =>
+      detailsResult({
+        Available: false,
+        Source: 'Headers',
+        PermissionError: true,
+      })
+    renderWithProviders(<CippQuarantineDetails row={quarantineRow} />)
+
+    expect(
+      screen.getByText(/SecurityAnalyzedMessage\.Read\.All/)
+    ).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /Permission Check/i })
+    expect(link).toHaveAttribute('href', '/cipp/settings/permissions')
+    expect(
+      screen.queryByText(/Showing details parsed from the message headers/)
+    ).toBeNull()
+  })
+
+  it('suppresses the enrichment-unavailable licence caption when PermissionError is set', () => {
+    api.get = () =>
+      getResult({
+        data: {
+          Results: [],
+          Metadata: { Available: false, PermissionError: true },
+        },
+      })
+    renderWithProviders(<CippQuarantineDetails row={quarantineRow} />)
+
+    expect(
+      screen.getByText(/SecurityAnalyzedMessage\.Read\.All/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        /Extended threat details are unavailable for this message/
+      )
+    ).toBeNull()
+  })
+
+  it('keeps the licence captions when there is no permission error', () => {
+    api.get = () =>
+      getResult({ data: { Results: [], Metadata: { Available: false } } })
+    renderWithProviders(<CippQuarantineDetails row={quarantineRow} />)
+
+    expect(
+      screen.getByText(
+        /Extended threat details are unavailable for this message/
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/SecurityAnalyzedMessage\.Read\.All/)).toBeNull()
+  })
+})

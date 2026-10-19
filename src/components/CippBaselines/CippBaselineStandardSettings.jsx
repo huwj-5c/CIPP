@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
+import { CippIcons } from '../../utils/icon-registry'
 import { Stack, Typography } from '@mui/material'
 import { Grid } from '@mui/system'
-import { Lock } from '@mui/icons-material'
 import CippFormComponent from '../CippComponents/CippFormComponent'
+import { CippFormCondition } from '../CippComponents/CippFormCondition'
 
 // Map an effective expected value back onto the standard's variables, so forms can be
 // pre-filled with what is currently applied (e.g. when creating a tenant override).
@@ -37,9 +38,69 @@ export const CippBaselineStandardSettings = ({
     const seed =
       initialValues?.[key] ?? definition.recommended ?? definition.default
     if (seed === undefined) return undefined
+    // List pickers that replaced a comma-separated text field still load the old string.
+    if (
+      definition.type === 'autoComplete' &&
+      definition.multiple === true &&
+      typeof seed === 'string'
+    ) {
+      return seed
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map(
+          (value) =>
+            definition.options?.find((option) => option.value === value) ?? {
+              label: value,
+              value,
+            }
+        )
+    }
     return definition.type === 'autoComplete'
       ? (definition.options?.find((option) => option.value === seed) ?? seed)
       : seed
+  }
+
+  // Definitions carry the API's real constraints as JSON validators. Map them into
+  // react-hook-form rules: min/max/maxLength pass through as {value, message}, pattern
+  // compiles its string into a RegExp (JSON cannot hold one - react-hook-form silently
+  // ignores string patterns), and lessThanOrEqual/greaterThanOrEqual compare against a
+  // sibling variable of the same standard (e.g. TAP's minimum lifetime must not exceed
+  // its maximum). Blank values always pass the cross-field rules - omitWhenBlank fields
+  // express no opinion, and react-hook-form itself skips empties for the built-ins.
+  const resolveValidators = (definition) => {
+    const rules = definition.required
+      ? { required: `${definition.label} is required` }
+      : {}
+    const declared = definition.validators ?? {}
+    ;['min', 'max', 'maxLength'].forEach((rule) => {
+      if (declared[rule]) rules[rule] = declared[rule]
+    })
+    if (declared.pattern) {
+      rules.pattern = {
+        value: new RegExp(declared.pattern.value),
+        message: declared.pattern.message,
+      }
+    }
+    ;[
+      ['lessThanOrEqual', (value, sibling) => Number(value) <= Number(sibling)],
+      ['greaterThanOrEqual', (value, sibling) => Number(value) >= Number(sibling)],
+    ].forEach(([rule, satisfies]) => {
+      if (!declared[rule]) return
+      rules.validate = {
+        ...rules.validate,
+        [rule]: (value) => {
+          if (value === undefined || value === null || value === '') return true
+          const sibling = formControl.getValues(
+            `${namePrefix}.${declared[rule].field}`,
+          )
+          if (sibling === undefined || sibling === null || sibling === '')
+            return true
+          return satisfies(value, sibling) || declared[rule].message
+        },
+      }
+    })
+    return Object.keys(rules).length > 0 ? rules : undefined
   }
 
   // The seed is ALSO passed as each field's defaultValue below - that is the load-bearing
@@ -65,53 +126,77 @@ export const CippBaselineStandardSettings = ({
 
   if (variableEntries.length === 0) {
     return (
-      <Typography variant="caption" color="text.secondary">
-        This standard has no configurable settings - it enforces a fixed value.
-      </Typography>
-    )
+      <Typography variant="caption" sx={{
+        color: "text.secondary"
+      }}>This standard has no configurable settings - it enforces a fixed value.
+              </Typography>
+    );
   }
 
   return (
     <Grid container spacing={2}>
-      {variableEntries.map(([key, definition]) => (
-        <Grid key={key} size={{ xs: 12, md: 6 }}>
-          <CippFormComponent
-            type={definition.type}
-            name={`${namePrefix}.${key}`}
-            label={definition.label}
+      {variableEntries.map(([key, definition]) => {
+        const field = (
+          <Grid key={key} size={{ xs: 12, md: 6 }}>
+            <CippFormComponent
+              type={definition.type}
+              name={`${namePrefix}.${key}`}
+              label={definition.label}
+              // Per-field guidance from the definition (e.g. an example version format).
+              // Renders below the field for text/number/select inputs.
+              helperText={definition.helperText}
+              formControl={formControl}
+              // Saved/recommended value rides the Controller's own defaultValue so a
+              // lazily-mounted field initializes correctly regardless of effect order.
+              defaultValue={resolveSeed(key, definition)}
+              options={definition.options}
+              // Definitions may source options from an API instead of a static list
+              // (e.g. the CA template picker) - CippFormComponent handles the fetch.
+              api={definition.api}
+              // Identity pickers are always single-select (the catalog tests enforce it);
+              // list-shaped variables (allowed domains, IP ranges) declare multiple:true.
+              multiple={definition.multiple === true}
+              creatable={definition.creatable === true}
+              disabled={definition.locked === true}
+              // Required-ness plus the definition's declared API constraints. A required
+              // variable has no safe fallback: saving without it leaves the raw %token% in
+              // the baseline, which the engine refuses to compare or apply - and a value
+              // outside the API's real bounds saves fine but fails at remediation time.
+              validators={resolveValidators(definition)}
+            />
+            {definition.locked && (
+              <Stack direction="row" spacing={0.5} sx={{
+                alignItems: "center"
+              }}>
+                <CippIcons.Lock sx={{ fontSize: 14 }} color="disabled" />
+                <Typography variant="caption" sx={{
+                  color: "text.secondary"
+                }}>
+                  Enforced by the standard definition and cannot be changed.
+                </Typography>
+              </Stack>
+            )}
+          </Grid>
+        )
+        // Hidden values are kept unless the definition opts into clearOnHide: the
+        // baseline logic, not the editor, decides what a dependent value means.
+        return definition.condition ? (
+          <CippFormCondition
+            key={key}
+            {...definition.condition}
+            field={`${namePrefix}.${definition.condition.field}`}
             formControl={formControl}
-            // Saved/recommended value rides the Controller's own defaultValue so a
-            // lazily-mounted field initializes correctly regardless of effect order.
-            defaultValue={resolveSeed(key, definition)}
-            options={definition.options}
-            // Definitions may source options from an API instead of a static list
-            // (e.g. the CA template picker) - CippFormComponent handles the fetch.
-            api={definition.api}
-            // Identity pickers are always single-select (the catalog tests enforce it);
-            // list-shaped variables (allowed domains, IP ranges) declare multiple:true.
-            multiple={definition.multiple === true}
-            creatable={definition.creatable === true}
-            disabled={definition.locked === true}
-            // A required variable has no safe fallback: saving without it leaves the
-            // raw %token% in the baseline, which the engine refuses to compare or apply.
-            validators={
-              definition.required
-                ? { required: `${definition.label} is required` }
-                : undefined
-            }
-          />
-          {definition.locked && (
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              <Lock sx={{ fontSize: 14 }} color="disabled" />
-              <Typography variant="caption" color="text.secondary">
-                Enforced by the standard definition and cannot be changed.
-              </Typography>
-            </Stack>
-          )}
-        </Grid>
-      ))}
+            clearOnHide={definition.clearOnHide === true}
+            clearFields={[`${namePrefix}.${key}`]}
+          >
+            {field}
+          </CippFormCondition>
+        ) : (
+          field
+        )
+      })}
     </Grid>
-  )
+  );
 }
 
 export default CippBaselineStandardSettings

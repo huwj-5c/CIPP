@@ -263,6 +263,107 @@ describe('CippFormCondition', () => {
     })
   })
 
+  it('clears fields whose component name was minified away', async () => {
+    // production builds empty function names, so fields must be found by their props
+    const Minified = (props) => <CippFormComponent {...props} />
+    Object.defineProperty(Minified, 'name', { value: '' })
+    let capturedFormControl
+    renderWithTheme(
+      <FormWrapper defaultValues={{ status: 'active', extra: 'keep-me' }}>
+        {(formControl) => {
+          capturedFormControl = formControl
+          return (
+            <>
+              <CippFormComponent
+                type="textField"
+                name="status"
+                label="Status"
+                disableVariables={true}
+                formControl={formControl}
+              />
+              <CippFormCondition
+                field="status"
+                compareType="is"
+                compareValue="active"
+                formControl={formControl}
+              >
+                <Minified
+                  type="textField"
+                  name="extra"
+                  label="Extra"
+                  disableVariables={true}
+                  formControl={formControl}
+                />
+              </CippFormCondition>
+            </>
+          )
+        }}
+      </FormWrapper>
+    )
+    expect(capturedFormControl.getValues('extra')).toBe('keep-me')
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Status' }), 'x')
+    await waitFor(() => {
+      expect(capturedFormControl.getValues('extra')).toBeNull()
+    })
+  })
+
+  it('shows children when "valueEq" matches an option wrapper', () => {
+    renderWithTheme(
+      <FormWrapper defaultValues={{ state: { label: 'Enabled', value: true } }}>
+        {(formControl) => (
+          <CippFormCondition
+            field="state"
+            compareType="valueEq"
+            compareValue={true}
+            formControl={formControl}
+          >
+            <div data-testid="child-content">ValueEq Content</div>
+          </CippFormCondition>
+        )}
+      </FormWrapper>
+    )
+    expect(screen.getByTestId('child-content')).toBeInTheDocument()
+  })
+
+  it('shows children when "valueEq" matches a legacy raw value (former switch boolean)', () => {
+    // A field migrated from switch to autoComplete still holds the raw boolean in
+    // templates saved before the migration; valueEq must fall back to comparing it.
+    renderWithTheme(
+      <FormWrapper defaultValues={{ state: true }}>
+        {(formControl) => (
+          <CippFormCondition
+            field="state"
+            compareType="valueEq"
+            compareValue={true}
+            formControl={formControl}
+          >
+            <div data-testid="child-content">Legacy ValueEq Content</div>
+          </CippFormCondition>
+        )}
+      </FormWrapper>
+    )
+    expect(screen.getByTestId('child-content')).toBeInTheDocument()
+  })
+
+  it('hides children when "valueEq" does not match a legacy raw value', () => {
+    renderWithTheme(
+      <FormWrapper defaultValues={{ state: false }}>
+        {(formControl) => (
+          <CippFormCondition
+            field="state"
+            compareType="valueEq"
+            compareValue={true}
+            formControl={formControl}
+          >
+            <div data-testid="child-content">Hidden ValueEq Content</div>
+          </CippFormCondition>
+        )}
+      </FormWrapper>
+    )
+    expect(screen.queryByTestId('child-content')).not.toBeInTheDocument()
+  })
+
   it('shows children when "greaterThan" condition is met', () => {
     renderWithTheme(
       <FormWrapper defaultValues={{ count: 10 }}>

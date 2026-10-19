@@ -1,4 +1,5 @@
 import { useRouter } from 'next/router'
+import { CippIcons } from '../../utils/icon-registry'
 import { useTabNavigation, useTitleClaimedByTabPicker } from '../../layouts/tab-navigation-context'
 import {
   Box,
@@ -11,7 +12,6 @@ import {
   CardContent,
   CardActions,
 } from '@mui/material'
-import ArrowLeftIcon from '@mui/icons-material/ArrowLeft'
 import { ApiPostCall } from '../../api/ApiCall'
 import { CippApiResults } from '../CippComponents/CippApiResults'
 import { createContext, useContext, useEffect } from 'react'
@@ -43,6 +43,9 @@ const CippFormPage = (props) => {
     allowResubmit = false,
     addedButtons,
     onSubmitResult,
+    // (values) => [{ url, data }] posted after postUrl succeeds; their results render in the
+    // same results section as the primary submission
+    followUpRequests,
     ...other
   } = props
   const router = useRouter()
@@ -95,6 +98,8 @@ const CippFormPage = (props) => {
     if (!isValid) {
       return
     }
+    // built before removeEmpty below, which mutates the values it is handed
+    const followUps = followUpRequests?.(formControl.getValues())
     const values = customDataformatter
       ? customDataformatter(formControl.getValues())
       : formControl.getValues()
@@ -125,6 +130,7 @@ const CippFormPage = (props) => {
     postCall.mutate({
       url: postUrl,
       data: values,
+      followUps,
     })
   }
   const formPageActions = {
@@ -155,11 +161,13 @@ const CippFormPage = (props) => {
               <Stack spacing={2}>
                 <Stack
                   direction={{ xs: 'column', sm: 'row' }}
-                  justifyContent="space-between"
-                  alignItems={{ xs: 'stretch', sm: 'center' }}
                   useFlexGap
-                  sx={{ columnGap: 2, rowGap: 1 }}
-                >
+                  sx={{
+                    justifyContent: "space-between",
+                    alignItems: { xs: 'stretch', sm: 'center' },
+                    columnGap: 2,
+                    rowGap: 1
+                  }}>
                   <Typography variant="h4">
                     {!hidePageType && <>{formPageType} - </>}
                     {title}
@@ -205,7 +213,7 @@ const CippFormPage = (props) => {
         </Container>
       </Box>
     </CippFormPageContext.Provider>
-  )
+  );
 }
 
 export default CippFormPage

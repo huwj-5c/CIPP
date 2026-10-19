@@ -11,6 +11,16 @@ export const getNestedValue = (source, path) => {
     return source
   }
 
+  // Row keys can contain literal dots (e.g. '@odata.type'). Prefer an exact key match before
+  // treating the dot as a path separator, otherwise '@odata.type' resolves to row['@odata']['type']
+  // (undefined) and callers fall back to the literal string.
+  if (
+    typeof source === 'object' &&
+    Object.prototype.hasOwnProperty.call(source, path)
+  ) {
+    return source[path]
+  }
+
   return path.split('.').reduce((acc, key) => {
     if (acc === undefined || acc === null) {
       return undefined
@@ -55,11 +65,28 @@ export const getRowTenant = (row, currentTenant) => {
   const source = Array.isArray(row) ? row[0] : row
   return (
     source?.Tenant ||
+    source?.tenantId ||
     source?.parent?.Tenant ||
+    source?.parent?.tenantId ||
     source?.tenantFilter ||
     source?.parent?.tenantFilter ||
     currentTenant
   )
+}
+
+/**
+ * Internal links opened from an AllTenants row carry the row's tenant, so the target page
+ * selects that tenant instead of inheriting AllTenants.
+ */
+export const withRowTenant = (link, row, currentTenant) => {
+  if (currentTenant !== 'AllTenants' || !link?.startsWith('/') || /[?&]tenantFilter=/.test(link)) {
+    return link
+  }
+  const tenant = getRowTenant(row, currentTenant)
+  if (!tenant || tenant === 'AllTenants') {
+    return link
+  }
+  return `${link}${link.includes('?') ? '&' : '?'}tenantFilter=${encodeURIComponent(tenant)}`
 }
 
 const replaceTemplatesInString = (value, row) =>

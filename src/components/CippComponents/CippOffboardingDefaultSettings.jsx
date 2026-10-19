@@ -60,6 +60,16 @@ export const CippOffboardingDefaultSettings = (props) => {
             ),
           },
           {
+            label: 'Remove group ownership',
+            value: (
+              <CippFormComponent
+                type="switch"
+                name="offboardingDefaults.RemoveGroupOwnership"
+                formControl={formControl}
+              />
+            ),
+          },
+          {
             label: 'Hide from Global Address List',
             value: (
               <CippFormComponent
@@ -150,11 +160,21 @@ export const CippOffboardingDefaultSettings = (props) => {
             ),
           },
           {
-            label: 'Delete user',
+            label: 'Delete User',
             value: (
               <CippFormComponent
                 type="switch"
                 name="offboardingDefaults.DeleteUser"
+                formControl={formControl}
+              />
+            ),
+          },
+          {
+            label: 'Wipe Mobile Devices (account data only)',
+            value: (
+              <CippFormComponent
+                type="switch"
+                name="offboardingDefaults.WipeMobile"
                 formControl={formControl}
               />
             ),
@@ -225,7 +245,13 @@ export const CippOffboardingDefaultSettings = (props) => {
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
               Out of Office Message
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+                display: 'block',
+                mb: 1.5
+              }}>
               Leave blank to not set. CIPP %variable% tokens (for example %tenantname%) are resolved
               when the offboarding job runs. %username% is not the offboarded user.
             </Typography>
@@ -264,10 +290,18 @@ export const CippOffboardingDefaultSettings = (props) => {
                   formControl={formControl}
                 />
               </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <CippFormComponent
+                  type="switch"
+                  label="Push notification"
+                  name="offboardingDefaults.postExecution.push"
+                  formControl={formControl}
+                />
+              </Grid>
             </Grid>
           </Box>
         }
       />
     </>
-  )
+  );
 }

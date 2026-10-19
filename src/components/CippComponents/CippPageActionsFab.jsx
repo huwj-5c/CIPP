@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CippIcons } from '../../utils/icon-registry'
 import { useSheetHandoff } from '../../hooks/use-sheet-handoff'
 import {
   Divider,
@@ -8,9 +9,9 @@ import {
   ListItemIcon,
   ListItemText,
   ListSubheader,
+  MenuList,
   Stack,
 } from '@mui/material'
-import { MoreHoriz } from '@mui/icons-material'
 import { CippBottomSheet } from './CippBottomSheet'
 import {
   useActionCornerClaim,
@@ -18,7 +19,7 @@ import {
 } from '../../layouts/tab-navigation-context'
 
 // The mobile page-actions pattern: one FAB in the bottom-right corner opening a bottom
-// sheet of actions. CippSpeedDial cedes this corner below md, so the FAB is the only
+// sheet of actions. CippSpeedDial cedes this corner below lg, so the FAB is the only
 // fixed control there. With restackButtons (default), children laid out for a desktop
 // CardHeader are restacked vertically at full width; purpose-built sheet content (list
 // rows) should pass restackButtons={false}.
@@ -32,7 +33,7 @@ export const CippPageActionsFab = (props) => {
     // One glyph for every page-actions FAB. A "+" only ever told the truth on pages whose
     // sheet creates things — on a report page the single action is a sync. MoreVert is the
     // row kebab, so the FAB takes the horizontal variant.
-    icon = <MoreHoriz />,
+    icon = <CippIcons.MoreHoriz />,
     ariaLabel = 'Page actions',
     restackButtons = true,
     sheetProps,
@@ -122,7 +123,11 @@ export const CippPageActionsFab = (props) => {
             }
           }}
         >
-          {children}
+          {/* Pages hand this sheet MenuItem children, which need a MenuList ancestor in
+              MUI v9. display: contents keeps them laid out as direct Stack items. */}
+          <MenuList disablePadding sx={{ display: 'contents' }}>
+            {children}
+          </MenuList>
         </Stack>
         {layoutActions.length > 0 && (
           <>

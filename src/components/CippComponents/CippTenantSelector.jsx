@@ -2,7 +2,6 @@ import PropTypes from "prop-types";
 import { CippAutoComplete } from "../CippComponents/CippAutocomplete";
 import { ApiGetCall } from "../../api/ApiCall";
 import { IconButton, Tooltip, Box, Chip, Typography } from "@mui/material";
-import { Refresh, Star, StarBorder } from "@mui/icons-material";
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/router";
 import { CippOffCanvas } from "./CippOffCanvas";
@@ -10,7 +9,8 @@ import { useSettings } from "../../hooks/use-settings";
 import { useTenantPreferences } from "../../hooks/use-tenant-preferences";
 import { getCippError } from "../../utils/get-cipp-error";
 import { useQueryClient } from "@tanstack/react-query";
-import { getIconByName } from "../../utils/icon-registry";
+import { CippIcons, getIconByName } from "../../utils/icon-registry"
+import { useLoginHint } from "../../hooks/use-login-hint";
 
 export const CippTenantSelector = React.forwardRef((props, ref) => {
   const { width, allTenants = false, multiple = false, refreshButton, tenantButton } = props;
@@ -71,12 +71,12 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
 
     const favoriteValues = new Set(favorites.map((item) => item.value).filter((value) => value !== "AllTenants"));
     const recentValues = recent.map((item) => item.value).filter((value) => value !== "AllTenants" && !favoriteValues.has(value));
-    const recentSet = new Set(recentValues);
     const byValue = new Map(selectableOptions.map((option) => [option.value, option]));
 
     const favoriteOptions = favorites
       .map((item) => byValue.get(item.value))
       .filter(Boolean)
+      .sort((a, b) => a.label.localeCompare(b.label))
       .map((option) => ({ ...option, group: "Favorites" }));
 
     const recentOptions = recentValues
@@ -84,8 +84,9 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
       .filter(Boolean)
       .map((option) => ({ ...option, group: "Recent" }));
 
+    // Favorites/Recent are shortcuts, not removals: every tenant stays in "All tenants"
+    // so it can still be found in its alphabetical position.
     const allOptions = selectableOptions
-      .filter((option) => !favoriteValues.has(option.value) && !recentSet.has(option.value))
       .slice()
       .sort((a, b) => a.label.localeCompare(b.label))
       .map((option) => ({ ...option, group: "All tenants" }));
@@ -116,6 +117,8 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
     },
     [trackRecent]
   );
+
+  const withLoginHint = useLoginHint();
 
   // Filter portal actions based on user preferences
   const filteredPortalActions = useMemo(() => {
@@ -230,8 +233,8 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
       icon: "Business",
     });
 
-    return filteredActions;
-  }, [currentTenant, settings]);
+    return filteredActions.map((action) => ({ ...action, link: withLoginHint(action.link) }));
+  }, [currentTenant, settings, withLoginHint]);
 
   // This effect handles updates when the tenant is changed via dropdown selection
   useEffect(() => {
@@ -450,7 +453,9 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
             const isAllTenants = option.value === "AllTenants";
             const favourited = !isAllTenants && isFavorite(option.value);
             return (
-              <Box component="li" key={key ?? `${option.group}-${option.value}`} {...optionProps}>
+              // Group-scoped key: a tenant now appears in both Favorites/Recent and
+              // "All tenants", so MUI's option key alone would collide.
+              <Box component="li" key={`${option.group}-${option.value}`} {...optionProps}>
                 <Box
                   sx={{
                     display: "flex",
@@ -489,7 +494,7 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
                         onMouseDown={(event) => event.preventDefault()}
                         sx={{ color: favourited ? "warning.main" : "action.active", flexShrink: 0 }}
                       >
-                        {favourited ? <Star fontSize="small" /> : <StarBorder fontSize="small" />}
+                        {favourited ? <CippIcons.Star fontSize="small" /> : <CippIcons.StarBorder fontSize="small" />}
                       </IconButton>
                     </Tooltip>
                   )}
@@ -513,7 +518,7 @@ export const CippTenantSelector = React.forwardRef((props, ref) => {
             }}
           >
             <Tooltip title="Refresh tenant list">
-              <Refresh />
+              <CippIcons.Refresh />
             </Tooltip>
           </IconButton>
         )}
